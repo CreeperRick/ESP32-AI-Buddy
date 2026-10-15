@@ -58,7 +58,7 @@ Copy this project onto the server (from your PC):
 ```bash
 # on the Ubuntu server
 sudo apt install -y git
-git clone <this-repo-url> ~/ESP32-AI-Buddy
+git clone http://github.com/CreeperRick/ESP32-AI-Buddy ~/ESP32-AI-Buddy
 cd ~/ESP32-AI-Buddy
 ```
 
