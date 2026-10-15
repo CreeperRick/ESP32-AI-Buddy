@@ -1,8 +1,0 @@
-fastapi==0.115.12
-uvicorn[standard]==0.34.2
-httpx==0.28.1
-faster-whisper==1.1.1
-numpy==2.2.5
-piper-tts==1.2.0
-python-dotenv==1.1.0
-soundfile==0.13.1
