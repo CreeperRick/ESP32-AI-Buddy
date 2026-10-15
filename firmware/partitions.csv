@@ -1,6 +1,0 @@
-# 8 MB flash, no OTA. ~3 MB app + ~4.9 MB LittleFS (~150 s of 16 kHz PCM).
-# Name,   Type, SubType, Offset,  Size, Flags
-nvs,      data, nvs,     0x9000,  0x5000,
-otadata,  data, ota,     0xe000,  0x2000,
-app0,     app,  ota_0,   0x10000, 0x300000,
-spiffs,   data, littlefs,0x310000,0x4F0000,
