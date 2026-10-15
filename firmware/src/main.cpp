@@ -13,8 +13,12 @@
 #include "config.h"
 #include "secrets.h"
 
-// Built-in Mozilla root CA bundle (ships with Arduino-ESP32) for HTTPS verification.
-extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_bin_start");
+// Mozilla root CA bundle embedded by the Arduino-ESP32 / ESP-IDF build. The symbol
+// name differs between core versions, so both are declared weak (null if absent).
+extern const uint8_t ca_bundle_a_start[] asm("_binary_x509_crt_bundle_start") __attribute__((weak));
+extern const uint8_t ca_bundle_a_end[] asm("_binary_x509_crt_bundle_end") __attribute__((weak));
+extern const uint8_t ca_bundle_b_start[] asm("_binary_x509_crt_bundle_bin_start") __attribute__((weak));
+extern const uint8_t ca_bundle_b_end[] asm("_binary_x509_crt_bundle_bin_end") __attribute__((weak));
 
 namespace {
 
@@ -112,7 +116,21 @@ bool beginHttp(HTTPClient& http, const String& path) {
 #ifdef TLS_INSECURE
     tlsClient.setInsecure();
 #else
-    tlsClient.setCACertBundle(rootca_crt_bundle_start);
+    const uint8_t* cb = nullptr;
+    size_t cbLen = 0;
+    if (ca_bundle_a_start && ca_bundle_a_end > ca_bundle_a_start) {
+      cb = ca_bundle_a_start;
+      cbLen = ca_bundle_a_end - ca_bundle_a_start;
+    } else if (ca_bundle_b_start && ca_bundle_b_end > ca_bundle_b_start) {
+      cb = ca_bundle_b_start;
+      cbLen = ca_bundle_b_end - ca_bundle_b_start;
+    }
+    if (cb) {
+      tlsClient.setCACertBundle(cb, cbLen);
+    } else {
+      Serial.println("WARN: CA bundle not found, TLS is NOT verified");
+      tlsClient.setInsecure();
+    }
 #endif
     return http.begin(tlsClient, baseUrl() + path);
   }
