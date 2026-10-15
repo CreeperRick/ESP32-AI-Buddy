@@ -6,10 +6,15 @@
 #include <SD.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <time.h>
 #include <ArduinoJson.h>
 #include <M5Cardputer.h>
 #include "config.h"
 #include "secrets.h"
+
+// Built-in Mozilla root CA bundle (ships with Arduino-ESP32) for HTTPS verification.
+extern const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_bin_start");
 
 namespace {
 
@@ -87,8 +92,32 @@ void pushHistory(const char* role, const String& text) {
   histCount++;
 }
 
+// Port 443 means HTTPS (e.g. Tailscale Funnel: https://host.tailnet.ts.net).
+bool useTls() { return serverPort == 443; }
+
 String baseUrl() {
+  if (useTls()) return "https://" + serverHost;
   return "http://" + serverHost + ":" + String(serverPort);
+}
+
+WiFiClientSecure tlsClient;
+WiFiClient plainClient;
+
+// Open an HTTP(S) request to the configured server. One shared client keeps
+// heap use low (no PSRAM); callers finish one request before starting the next.
+bool beginHttp(HTTPClient& http, const String& path) {
+  http.setReuse(false);
+  if (useTls()) {
+    tlsClient.stop();
+#ifdef TLS_INSECURE
+    tlsClient.setInsecure();
+#else
+    tlsClient.setCACertBundle(rootca_crt_bundle_start);
+#endif
+    return http.begin(tlsClient, baseUrl() + path);
+  }
+  plainClient.stop();
+  return http.begin(plainClient, baseUrl() + path);
 }
 
 void applyAuth(HTTPClient& http) {
@@ -258,6 +287,12 @@ bool connectWifi() {
     M5Cardputer.update();
   }
   if (WiFi.status() == WL_CONNECTED) {
+    if (useTls()) {
+      // TLS certificate checks need a correct clock.
+      configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
+      uint32_t t0 = millis();
+      while (time(nullptr) < 1700000000 && millis() - t0 < 8000) delay(200);
+    }
     setStatus(WiFi.localIP().toString());
     return true;
   }
@@ -272,7 +307,7 @@ bool checkHealth() {
   }
   HTTPClient http;
   http.setTimeout(4000);
-  if (!http.begin(baseUrl() + "/health")) {
+  if (!beginHttp(http, "/health")) {
     serverOk = false;
     return false;
   }
@@ -286,7 +321,7 @@ bool pullServerConfig() {
   if (WiFi.status() != WL_CONNECTED) return false;
   HTTPClient http;
   http.setTimeout(5000);
-  if (!http.begin(baseUrl() + "/api/config")) return false;
+  if (!beginHttp(http, "/api/config")) return false;
   applyAuth(http);
   int code = http.GET();
   if (code != 200) {
@@ -318,7 +353,7 @@ bool pushServerConfig() {
   serializeJson(doc, body);
   HTTPClient http;
   http.setTimeout(8000);
-  if (!http.begin(baseUrl() + "/api/config")) return false;
+  if (!beginHttp(http, "/api/config")) return false;
   http.addHeader("Content-Type", "application/json");
   applyAuth(http);
   int code = http.PUT(body);
@@ -381,7 +416,7 @@ void speakReply(const String& reply) {
   serializeJson(tts, ttsBody);
   HTTPClient ttsHttp;
   ttsHttp.setTimeout(HTTP_TIMEOUT_MS);
-  if (!ttsHttp.begin(baseUrl() + "/api/tts")) return;
+  if (!beginHttp(ttsHttp, "/api/tts")) return;
   ttsHttp.addHeader("Content-Type", "application/json");
   applyAuth(ttsHttp);
   const char* keys[] = {"X-Sample-Rate"};
@@ -413,7 +448,7 @@ void sendCheat() {
 
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  if (!http.begin(baseUrl() + "/api/chat")) {
+  if (!beginHttp(http, "/api/chat")) {
     setStatus("HTTP fail");
     return;
   }
@@ -513,7 +548,7 @@ bool recordAndTalk() {
 
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
-  if (!http.begin(baseUrl() + "/api/talk")) {
+  if (!beginHttp(http, "/api/talk")) {
     body.close();
     setStatus("HTTP fail");
     return false;
@@ -601,7 +636,7 @@ void settingsMenu() {
   drawScreen();
   wifiSsid = promptLine("WiFi SSID", wifiSsid);
   wifiPass = promptLine("WiFi password", wifiPass, true);
-  serverHost = promptLine("Server IP", serverHost);
+  serverHost = promptLine("Server host/IP", serverHost);
   String portStr = promptLine("Server port", String(serverPort));
   uint16_t p = portStr.toInt();
   if (p) serverPort = p;

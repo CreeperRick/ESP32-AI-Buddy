@@ -58,7 +58,7 @@ Copy this project onto the server (from your PC):
 ```bash
 # on the Ubuntu server
 sudo apt install -y git
-git clone http://github.com/CreeperRick/ESP32-AI-Buddy ~/ESP32-AI-Buddy
+git clone <this-repo-url> ~/ESP32-AI-Buddy
 cd ~/ESP32-AI-Buddy
 ```
 
@@ -180,6 +180,41 @@ On the Cardputer:
 5. Press **`/`** on an empty draft to reopen settings.
 
 If the top bar is red, the server is unreachable: confirm IP, `sudo systemctl status ai-buddy`, and that the phone/PC and Cardputer share the same subnet (guest Wi-Fi often isolates clients).
+
+---
+
+## Remote access over Tailscale
+
+The Cardputer cannot join a tailnet itself (there is no Tailscale client for ESP32, and the board has no PSRAM). Instead, put the **server** on your tailnet and publish it with **Tailscale Funnel**, which gives it an HTTPS URL the Cardputer can reach from any Wi-Fi. The Cardputer still speaks plain HTTP on your LAN, so home use keeps working.
+
+**1. Set an API token first.** Funnel is reachable from the public internet, so never expose the server without one:
+
+```bash
+cd ~/ESP32-AI-Buddy/server
+nano .env                      # API_TOKEN=a-long-random-secret
+sudo systemctl restart ai-buddy
+```
+
+**2. Install Tailscale and publish port 8080 on the server:**
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+sudo tailscale funnel --bg 8080
+tailscale funnel status        # shows https://YOUR-HOST.YOUR-TAILNET.ts.net
+```
+
+HTTPS and Funnel must be enabled for your tailnet in the admin console (DNS page, then Access controls) the first time.
+
+**3. Point the Cardputer at it.** Press `/` on an empty draft to open settings and enter:
+
+- Server host: `YOUR-HOST.YOUR-TAILNET.ts.net`
+- Server port: `443` (port 443 switches the firmware to HTTPS)
+- API token: the same secret as above
+
+Or set `SERVER_HOST`, `SERVER_PORT 443` and `API_TOKEN` in `firmware/include/secrets.h` and reflash.
+
+Notes: the Cardputer syncs its clock over NTP after joining Wi-Fi, because certificate checks need the right time. `/health` and the web page stay open without a token, while the AI and config endpoints require it. If you need a private-only setup, use a Tailscale subnet router or a WireGuard server on your LAN instead.
 
 ---
 

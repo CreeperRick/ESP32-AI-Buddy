@@ -20,3 +20,6 @@
 #define DEFAULT_BRIGHTNESS 80
 #define DEFAULT_MAX_RECORD_S 45
 #define MAX_RECORD_S_CAP 120
+
+// Uncomment only to debug TLS problems (skips certificate verification):
+// #define TLS_INSECURE

@@ -108,9 +108,45 @@ def pull_model(model: str) -> None:
     run(["ollama", "pull", model])
 
 
+# piper-tts 1.2.0 needs piper-phonemize, which only ships wheels up to Python 3.11.
+PY_OK = ((3, 9), (3, 11))
+PY_TARGET = "3.11"
+
+
+def venv_python_ok(py: Path) -> bool:
+    try:
+        out = subprocess.run(
+            [str(py), "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
+            capture_output=True, text=True, check=True,
+        ).stdout.split()
+        return PY_OK[0] <= (int(out[0]), int(out[1])) <= PY_OK[1]
+    except Exception:
+        return False
+
+
+def find_uv() -> str:
+    found = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
+    if Path(found).exists():
+        return found
+    print("Installing uv (to fetch Python %s)..." % PY_TARGET)
+    run("curl -LsSf https://astral.sh/uv/install.sh | sh", shell=True)
+    found = str(Path.home() / ".local" / "bin" / "uv")
+    if not Path(found).exists():
+        raise SystemExit("Could not install uv. Install Python 3.11 manually and re-run.")
+    return found
+
+
 def create_venv() -> Path:
+    vpy = VENV / "bin" / "python"
+    if VENV.exists() and not venv_python_ok(vpy):
+        print("Existing .venv uses an unsupported Python; recreating it.")
+        shutil.rmtree(VENV)
     if not VENV.exists():
-        run([sys.executable, "-m", "venv", str(VENV)])
+        if PY_OK[0] <= sys.version_info[:2] <= PY_OK[1]:
+            run([sys.executable, "-m", "venv", str(VENV)])
+        else:
+            print(f"System Python {sys.version_info[0]}.{sys.version_info[1]} is too new for piper-tts; using Python {PY_TARGET} via uv.")
+            run([find_uv(), "venv", "--seed", "--python", PY_TARGET, str(VENV)])
     pip = VENV / "bin" / "pip"
     run([str(pip), "install", "--upgrade", "pip", "wheel"])
     run([str(pip), "install", "-r", str(ROOT / "requirements.txt")])
